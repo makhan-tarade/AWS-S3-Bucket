@@ -127,16 +127,15 @@ router.get('/:fileId', async (req, res) => {
     fileStream.Body.pipe(res);
   } catch (error) {
     console.error('Error fetching file:', error);
+    if (error.$metadata.httpStatusCode === 404)
+      res.status(404).json({ error: 'File not found' })
+
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
 
-// Fetch all files
-router.get('/all', async (req, res) => {
+router.get('/files/all', async (req, res) => {
   try {
-    // Perform the necessary logic to fetch all files from your storage
-    // (e.g., list all files from S3, fetch file details from your database)
-
     const params = {
       Bucket: AWS_S3_BUCKET,
       Prefix: 'files_from_node/', // Adjust the prefix based on your file naming convention
@@ -145,15 +144,13 @@ router.get('/all', async (req, res) => {
     // List all objects in the S3 bucket with the specified prefix
     const data = await s3Client.send(new ListObjectsV2Command(params));
 
-    // Extract file keys from the S3 response
-    const fileKeys = data.Contents.map((obj) => obj.Key);
-
-    // You can now use fileKeys to fetch additional details from your database if needed
-
     // Check if there are no files
-    if (fileKeys.length === 0) {
+    if (!data || !data.Contents || data.Contents.length === 0) {
       return res.status(404).json({ error: 'No files found.' });
     }
+
+    // Extract file keys from the S3 response
+    const fileKeys = data.Contents.map((obj) => obj.Key);
 
     // Return the list of file keys
     res.status(200).json({
@@ -163,9 +160,38 @@ router.get('/all', async (req, res) => {
   } catch (error) {
     console.error('Error fetching files:', error);
 
-    // Log additional details about the error
-    console.error('Error metadata:', error.$metadata);
+    // Check if the error is due to S3 bucket not found or access denied
+    if (error.code === 'NoSuchBucket' || error.code === 'AccessDenied') {
+      return res.status(404).json({ error: 'S3 bucket not found or access denied.' });
+    }
 
+    // Handle other errors
+    res.status(500).json({ error: 'Internal Server Error' });
+  }
+});
+
+
+
+// Delete multiple files
+router.delete('/multiple/files', async (req, res) => {
+  const fileKeys = req.body.fileKeys; // Assuming fileKeys is an array of file keys
+
+  // Perform the necessary logic to delete each file from your storage
+  // (e.g., delete each file from S3, update file details in your database)
+
+  try {
+    // Iterate over each file key and delete it from S3
+    for (const key of fileKeys) {
+      const params = {
+        Bucket: AWS_S3_BUCKET,
+        Key: key, // Adjust the key based on your file naming convention
+      };
+      await s3Client.send(new DeleteObjectCommand(params));
+    }
+
+    res.status(200).json({ message: 'Files deleted successfully!' });
+  } catch (error) {
+    console.error('Error deleting files:', error);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });
